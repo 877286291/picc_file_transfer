@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ .title }}</title>
+    <link rel="stylesheet" href="../static/css/layui.css">
+</head>
+<body>
+<div class="layui-upload-drag" id="upload">
+    <i class="layui-icon">&#xe67c;</i>
+    <p>点击上传，或将文件拖拽到此处</p>
+</div>
+
+<script src="../static/layui.all.js"></script>
+<script>
+    layui.use(['upload', 'layer', 'element'], function () {
+        let layer = layui.layer;
+        let upload = layui.upload;
+        upload.render({
+            elem: '#upload',
+            accept: 'file',
+            url: '/api/v1/upload',
+            done: function (res) {
+                layer.msg('上传成功');
+                console.log(res)
+            }
+        });
+    });
+</script>
+<style>
+    body {
+        text-align: center
+    }
+
+    #upload {
+        border: 1px solid #3b8ec6;
+        width: 300px;
+        margin-top: 11%;
+        border-radius: 20px;
+    }
+</style>
+</body>
+</html>
