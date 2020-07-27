@@ -8,16 +8,18 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"path"
 	"strings"
 	"time"
 )
 
 var (
-	apiUrl = "http://39.108.180.201/api/v1"
+	apiUrl = "http://39.108.180.201:9999/api/v1"
 	//apiUrl     = "http://127.0.0.1/api/v1"
 	httpClient *http.Client
-	remoteDir  = "/root"
+	//remoteDir  = "/root"
+	remoteDir = "/home/stack"
 )
 
 type ClientConfig struct {
@@ -31,23 +33,26 @@ type ClientConfig struct {
 }
 
 const (
-	HOST      = "39.108.180.201"
-	USERNAME  = "root"
-	PASSWORD  = "Hyj877286291"
+	//HOST      = "39.108.180.201"
+	//USERNAME  = "root"
+	//PASSWORD  = "Hyj877286291"
+	HOST      = "10.8.7.77"
+	USERNAME  = "stack"
+	PASSWORD  = "Picc123456"
 	HttpProxy = "http://proxy.piccnet.com.cn:3128"
 )
 
 func init() {
-	//proxy := func(_ *http.Request) (*url.URL, error) {
-	//	return url.Parse(HttpProxy)
-	//}
-	//
-	//httpTransport := &http.Transport{
-	//	Proxy: proxy,
-	//}
+	proxy := func(_ *http.Request) (*url.URL, error) {
+		return url.Parse(HttpProxy)
+	}
+
+	httpTransport := &http.Transport{
+		Proxy: proxy,
+	}
 
 	httpClient = &http.Client{
-		//Transport: httpTransport,
+		Transport: httpTransport,
 	}
 }
 func main() {
@@ -67,7 +72,6 @@ func main() {
 		}
 		defer resp.Body.Close()
 		response, err := ioutil.ReadAll(resp.Body)
-		//filename 为md5摘要的值 32位
 		fileName := strings.ReplaceAll(string(response), "\"", "")
 		if err != nil {
 			log.Println(err)
@@ -76,7 +80,6 @@ func main() {
 		if len(fileName) != 0 && fileName != "null" && currentTask != fileName {
 			//获取数据
 			content := getContent(fileName)
-			// md5和文件名一致则认为文件是完整的，开始传输
 			currentTask = fileName
 			//删除临时文件
 			deleteFile(fileName)
@@ -106,7 +109,7 @@ func getContent(filename string) []byte {
 }
 func deleteFile(filename string) {
 	fmt.Println("开始删除文件：", filename)
-	request, err := http.NewRequest(http.MethodDelete, apiUrl+"/deleteFile?filename="+filename, nil)
+	request, err := http.NewRequest(http.MethodGet, apiUrl+"/deleteFile?filename="+filename, nil)
 	if err != nil {
 		log.Println(err)
 	}

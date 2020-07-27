@@ -19,9 +19,11 @@ func main() {
 		v1.GET("/singleFile", HandleSingleFile)
 		v1.POST("/upload", HandleUploadFile)
 		v1.GET("/download", HandleDownloadFile)
-		v1.DELETE("/deleteFile", HandleDeleteFile)
+		//PICC不支持delete请求
+		//v1.DELETE("/deleteFile", HandleDeleteFile)
+		v1.GET("/deleteFile", HandleDeleteFile)
 	}
-	_ = router.Run("0.0.0.0:80")
+	_ = router.Run("0.0.0.0:9999")
 }
 
 func indexHandler(context *gin.Context) {
@@ -42,7 +44,6 @@ func HandleSingleFile(context *gin.Context) {
 		return
 	}
 	context.JSON(http.StatusInternalServerError, nil)
-	return
 }
 func checkPath(path string) bool {
 	_, err := os.Stat(path)
@@ -97,6 +98,7 @@ func HandleDeleteFile(context *gin.Context) {
 	if err != nil {
 		log.Println(err)
 		context.JSON(http.StatusInternalServerError, "服务器删除时发生错误")
+		return
 	}
 	context.JSON(http.StatusOK, "服务器文件删除成功")
 }
