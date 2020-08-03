@@ -23,7 +23,7 @@ func main() {
 		//v1.DELETE("/deleteFile", HandleDeleteFile)
 		v1.GET("/deleteFile", HandleDeleteFile)
 	}
-	_ = router.Run("0.0.0.0:9999")
+	_ = router.Run("0.0.0.0:8888")
 }
 
 func indexHandler(context *gin.Context) {
