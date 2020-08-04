@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,9 +24,10 @@ var (
 	//apiUrl     = "http://127.0.0.1/api/v1"
 	httpClient *http.Client
 	//remoteDir  = "/root"
-	remoteDir = "/home/stack"
-	insideDir = "/home/stack/inside"
-	outDir    = "/home/stack/outside"
+	//remoteDir = "/home/stack"
+	insideDir  = "/home/stack/inside"
+	outsideDir = "/home/stack/outside"
+	wg         sync.WaitGroup
 )
 
 type ClientConfig struct {
@@ -62,6 +64,7 @@ func init() {
 	}
 }
 func main() {
+	wg.Add(2)
 	downloadTickChan := time.Tick(time.Second * 3)
 	uploadTickChan := time.Tick(time.Second * 5)
 	currentTask := ""
@@ -105,10 +108,13 @@ func main() {
 			log.Println("监测云桌面是否有新文件")
 			cliConf := new(ClientConfig)
 			cliConf.connHost(HOST, 22, USERNAME, PASSWORD)
-			fileList := strings.Split(cliConf.RunShell("ls -l "+outDir+"| grep ^[^d] | awk '{print $9}'"), "\n")
+			fileList := strings.Split(cliConf.RunShell("ls -l "+outsideDir+"| grep ^[^d] | awk '{print $9}'"), "\n")
 			cliConf.SftpClient.Close()
 			cliConf.SshClient.Close()
 			for _, filename := range fileList[1:] {
+				if filename == "" {
+					continue
+				}
 				fileReader := sftpDownload(filename)
 				bodyBuf := &bytes.Buffer{}
 				bodyWriter := multipart.NewWriter(bodyBuf)
@@ -123,7 +129,7 @@ func main() {
 				contentType := bodyWriter.FormDataContentType()
 				_ = bodyWriter.Close()
 				//上传文件
-				request, err := http.NewRequest(http.MethodPost, apiUrl+"/upload", bodyBuf)
+				request, err := http.NewRequest(http.MethodPost, apiUrl+"/uploadToServer", bodyBuf)
 				if err != nil {
 					log.Println(err)
 				}
@@ -135,16 +141,16 @@ func main() {
 				}
 				response, err := ioutil.ReadAll(resp.Body)
 				resp.Body.Close()
-				log.Println(response)
+				log.Println(string(response))
 			}
 			<-uploadTickChan
 		}
 	}()
-
+	wg.Wait()
 }
 func getContent(filename string) []byte {
 	log.Println("开始获取服务器文件...")
-	request, err := http.NewRequest(http.MethodGet, apiUrl+"/download?filename="+filename, nil)
+	request, err := http.NewRequest(http.MethodGet, apiUrl+"/downloadFromServer?filename="+filename, nil)
 	if err != nil {
 		log.Println(err)
 	}
@@ -238,18 +244,20 @@ func sftpUpload(fileName string, srcFile []byte) {
 	log.Println(fileName, "文件上传完成，共", total/1024/1024, "M")
 }
 func sftpDownload(fileName string) *os.File {
+	log.Println(fileName)
 	cliConf := new(ClientConfig)
 	cliConf.connHost(HOST, 22, USERNAME, PASSWORD)
-	srcFile, err := cliConf.SftpClient.Open(fileName)
+	srcFile, err := cliConf.SftpClient.Open(path.Join(outsideDir, fileName))
 	dstFile, err := os.Create(path.Join("./", fileName))
 	if _, err = srcFile.WriteTo(dstFile); err != nil {
 		log.Println(err)
 	}
+	cliConf.RunShell("rm -rf " + path.Join(outsideDir, fileName))
 	defer srcFile.Close()
-	fileReader, err := os.Open(fileName)
+	fileReader, err := os.Open(path.Join("./", fileName))
 	if err != nil {
 		log.Println(err)
 	}
-	_ = os.Remove(fileName)
+	_ = os.Remove(path.Join("./", fileName))
 	return fileReader
 }
