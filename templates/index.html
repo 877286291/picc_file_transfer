@@ -4,14 +4,37 @@
     <meta charset="UTF-8">
     <title>{{ .title }}</title>
     <link rel="stylesheet" href="../static/css/layui.css">
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.3/Chart.min.css">
 </head>
-<body>
-<div class="layui-upload-drag" id="upload">
-    <i class="layui-icon">&#xe67c;</i>
-    <p>点击上传，或将文件拖拽到此处</p>
+<body style="padding: 20px; background-color: #F2F2F2;">
+<div class="layui-fluid">
+    <div class="layui-row">
+        <div class="layui-col-sm6">
+            <div class="grid-demo grid-demo-bg1">
+                <div class="layui-upload-drag" id="upload">
+                    <i class="layui-icon">&#xe67c;</i>
+                    <p>点击上传，或将文件拖拽到此处</p>
+                </div>
+            </div>
+        </div>
+        <div class="layui-col-sm6">
+            <div class="grid-demo">
+                <canvas id="diskChart" width="840" height="370"></canvas>
+            </div>
+        </div>
+        <div class="layui-col-md12">
+            <div class="grid-demo grid-demo-bg3">
+                <table class="layui-hide" id="test"></table>
+            </div>
+        </div>
+    </div>
 </div>
-
+<script type="text/html" id="barDemo">
+    <a class="layui-btn layui-btn-xs layui-btn-radius" lay-event="edit">下载</a>
+    <a class="layui-btn layui-btn-xs layui-btn-danger layui-btn-radius" lay-event="del">删除</a>
+</script>
 <script src="../static/layui.all.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.9.3/Chart.js"></script>
 <script>
     layui.use(['upload', 'layer', 'element'], function () {
         let layer = layui.layer;
@@ -26,7 +49,87 @@
             }
         });
     });
+    layui.use('table', function () {
+        const table = layui.table;
+
+        table.render({
+            elem: '#test'
+            // , url: '/demo/table/user/'
+            , cellMinWidth: 80 //全局定义常规单元格的最小宽度，layui 2.2.1 新增
+            , cols: [[
+                {field: 'id', title: 'ID', sort: true}
+                , {field: 'filename', title: '文件名', sort: true} //width 支持：数字、百分比和不填写。你还可以通过 minWidth 参数局部定义当前单元格的最小宽度，layui 2.2.1 新增
+                , {field: 'filesize', title: '文件大小', sort: true}
+                , {field: 'createAt', title: '文件上传时间', sort: true}
+                , {fixed: 'right', title: '操作', toolbar: '#barDemo', width: 150}
+            ]]
+            , data: [{
+                id: "1",
+                filename: "test.txt",
+                filesize: "5M",
+                createAt: "2020-09-10 21:17"
+            }]
+        });
+        table.on('tool(test)', function (obj) {
+            const data = obj.data;
+            //console.log(obj)
+            if (obj.event === 'del') {
+                layer.confirm('真的删除行么', function (index) {
+                    obj.del();
+                    layer.close(index);
+                });
+            } else if (obj.event === 'edit') {
+                layer.prompt({
+                    formType: 2
+                    , value: data.email
+                }, function (value, index) {
+                    obj.update({
+                        email: value
+                    });
+                    layer.close(index);
+                });
+            }
+        });
+    });
+    const ctx = document.getElementById('diskChart');
+    Chart.defaults.line.spanGaps = true;
+    var myBarChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            datasets: [{
+                label: "上行流量",
+                data: [{
+                    x: 10,
+                    y: 20
+                }, {
+                    x: 20,
+                    y: 10,
+                }],
+
+            }, {
+                label: "下行流量",
+                data: [{
+                    x: 10,
+                    y: 40
+                }, {
+                    x: 20,
+                    y: 30,
+                }]
+            }]
+        },
+        options: {
+            scales: {
+                yAxes: [{
+                    stacked: false
+                }]
+            },
+            line: {
+                backgroundColor: 'rgba(0, 0, 0, 0.1)'
+            }
+        }
+    });
 </script>
+
 <style>
     body {
         text-align: center
@@ -35,6 +138,7 @@
     #upload {
         border: 1px solid #3b8ec6;
         width: 300px;
+        height: auto;
         margin-top: 11%;
         border-radius: 20px;
     }
