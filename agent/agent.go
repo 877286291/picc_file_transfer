@@ -63,89 +63,16 @@ func init() {
 		Transport: httpTransport,
 	}
 }
+
 func main() {
 	wg.Add(2)
 	downloadTickChan := time.Tick(time.Second * 3)
 	uploadTickChan := time.Tick(time.Second * 5)
 	currentTask := ""
 	//下载文件到云桌面
-	go func() {
-		for {
-			log.Println("监测服务器是否有新文件")
-			request, err := http.NewRequest(http.MethodGet, apiUrl+"/singleFile", nil)
-			if err != nil {
-				log.Println(err)
-			}
-			resp, err := httpClient.Do(request)
-			if err != nil {
-				log.Println(err)
-				continue
-			}
-			response, err := ioutil.ReadAll(resp.Body)
-			resp.Body.Close()
-			fileName := strings.ReplaceAll(string(response), "\"", "")
-			if err != nil {
-				log.Println(err)
-			}
-
-			if len(fileName) != 0 && fileName != "null" && currentTask != fileName {
-				//获取数据
-				content := getContent(fileName)
-				currentTask = fileName
-				//删除临时文件
-				deleteFile(fileName)
-				//传入10.8.7.77
-				log.Println("文件已从服务器拉至本地，开始上传至内网服务器...")
-				sftpUpload(fileName, content)
-				currentTask = ""
-			}
-			<-downloadTickChan
-		}
-	}()
+	go download(downloadTickChan, currentTask)
 	//上传文件到外网服务器
-	go func() {
-		for {
-			log.Println("监测云桌面是否有新文件")
-			cliConf := new(ClientConfig)
-			cliConf.connHost(HOST, 22, USERNAME, PASSWORD)
-			fileList := strings.Split(cliConf.RunShell("ls -l "+outsideDir+"| grep ^[^d] | awk '{print $9}'"), "\n")
-			cliConf.SftpClient.Close()
-			cliConf.SshClient.Close()
-			for _, filename := range fileList[1:] {
-				if filename == "" {
-					continue
-				}
-				fileReader := sftpDownload(filename)
-				bodyBuf := &bytes.Buffer{}
-				bodyWriter := multipart.NewWriter(bodyBuf)
-				fileWriter, err := bodyWriter.CreateFormFile("file", filename)
-				if err != nil {
-					log.Println(err)
-				}
-				_, err = io.Copy(fileWriter, fileReader)
-				if err != nil {
-					log.Println(err)
-				}
-				contentType := bodyWriter.FormDataContentType()
-				_ = bodyWriter.Close()
-				//上传文件
-				request, err := http.NewRequest(http.MethodPost, apiUrl+"/uploadToServer", bodyBuf)
-				if err != nil {
-					log.Println(err)
-				}
-				request.Header.Set("Content-Type", contentType)
-				resp, err := httpClient.Do(request)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				response, err := ioutil.ReadAll(resp.Body)
-				resp.Body.Close()
-				log.Println(string(response))
-			}
-			<-uploadTickChan
-		}
-	}()
+	go upload(uploadTickChan)
 	wg.Wait()
 }
 func getContent(filename string) []byte {
@@ -260,4 +187,91 @@ func sftpDownload(fileName string) *os.File {
 	}
 	_ = os.Remove(path.Join("./", fileName))
 	return fileReader
+}
+func download(downloadTickChan <-chan time.Time, currentTask string) {
+	defer func() {
+		if e := recover(); e != nil {
+			go download(downloadTickChan, currentTask)
+		}
+	}()
+	for {
+		log.Println("监测服务器是否有新文件")
+		request, err := http.NewRequest(http.MethodGet, apiUrl+"/singleFile", nil)
+		if err != nil {
+			log.Println(err)
+		}
+		resp, err := httpClient.Do(request)
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		response, err := ioutil.ReadAll(resp.Body)
+		resp.Body.Close()
+		fileName := strings.ReplaceAll(string(response), "\"", "")
+		if err != nil {
+			log.Println(err)
+		}
+
+		if len(fileName) != 0 && fileName != "null" && currentTask != fileName {
+			//获取数据
+			content := getContent(fileName)
+			currentTask = fileName
+			//删除临时文件
+			deleteFile(fileName)
+			//传入10.8.7.77
+			log.Println("文件已从服务器拉至本地，开始上传至内网服务器...")
+			sftpUpload(fileName, content)
+			currentTask = ""
+		}
+		<-downloadTickChan
+	}
+}
+
+func upload(uploadTickChan <-chan time.Time) {
+	defer func() {
+		if e := recover(); e != nil {
+			go upload(uploadTickChan)
+		}
+	}()
+	for {
+		log.Println("监测云桌面是否有新文件")
+		cliConf := new(ClientConfig)
+		cliConf.connHost(HOST, 22, USERNAME, PASSWORD)
+		fileList := strings.Split(cliConf.RunShell("ls -l "+outsideDir+"| grep ^[^d] | awk '{print $9}'"), "\n")
+		cliConf.SftpClient.Close()
+		cliConf.SshClient.Close()
+		for _, filename := range fileList[1:] {
+			if filename == "" {
+				continue
+			}
+			fileReader := sftpDownload(filename)
+			bodyBuf := &bytes.Buffer{}
+			bodyWriter := multipart.NewWriter(bodyBuf)
+			fileWriter, err := bodyWriter.CreateFormFile("file", filename)
+			if err != nil {
+				log.Println(err)
+			}
+			_, err = io.Copy(fileWriter, fileReader)
+			if err != nil {
+				log.Println(err)
+			}
+			contentType := bodyWriter.FormDataContentType()
+			_ = bodyWriter.Close()
+			//上传文件
+			request, err := http.NewRequest(http.MethodPost, apiUrl+"/uploadToServer", bodyBuf)
+			if err != nil {
+				log.Println(err)
+			}
+			request.Header.Set("Content-Type", contentType)
+			resp, err := httpClient.Do(request)
+			if err != nil {
+				log.Println(err)
+				continue
+			}
+			response, err := ioutil.ReadAll(resp.Body)
+			resp.Body.Close()
+			log.Println(string(response))
+		}
+		<-uploadTickChan
+	}
 }
