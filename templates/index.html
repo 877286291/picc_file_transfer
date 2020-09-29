@@ -4,13 +4,38 @@
     <meta charset="UTF-8">
     <title>{{ .title }}</title>
     <link rel="stylesheet" href="../static/css/layui.css">
+    <script src="../static/echarts.min.js"></script>
+    <script src="../static/jquery-3.5.1.min.js"></script>
 </head>
-<body>
-<div class="layui-upload-drag" id="upload">
-    <i class="layui-icon">&#xe67c;</i>
-    <p>点击上传，或将文件拖拽到此处</p>
+<body style="padding: 20px; background-color: #F2F2F2;">
+<div class="layui-fluid">
+    <div class="layui-row">
+        <div class="layui-col-sm6">
+            <div class="grid-demo grid-demo-bg1">
+                <div class="layui-upload-drag" id="upload">
+                    <i class="layui-icon">&#xe67c;</i>
+                    <p>点击上传，或将文件拖拽到此处</p>
+                </div>
+            </div>
+        </div>
+        <div class="layui-col-sm6">
+            <div class="grid-demo">
+                <div id="main" style="width:840px;height:370px"></div>
+            </div>
+        </div>
+        <div class="layui-col-md12">
+            <button type="button" class="layui-btn layui-btn-normal layui-btn-radius" id="reloadButton">刷新列表
+            </button>
+            <div class="grid-demo grid-demo-bg3">
+                <table class="layui-hide" id="test" lay-filter="test"></table>
+            </div>
+        </div>
+    </div>
 </div>
-
+<script type="text/html" id="barDemo">
+    <a class="layui-btn layui-btn-xs" lay-event="download">下载</a>
+    <a class="layui-btn layui-btn-danger layui-btn-xs" lay-event="delete">删除</a>
+</script>
 <script src="../static/layui.all.js"></script>
 <script>
     layui.use(['upload', 'layer', 'element'], function () {
@@ -26,6 +51,105 @@
             }
         });
     });
+    layui.use('table', function () {
+        const table = layui.table;
+        table.render({
+            elem: '#test'
+            , id: 'fileTable'
+            , url: '/api/v1/getFileList'
+            , page: false
+            , cellMinWidth: 80 //全局定义常规单元格的最小宽度，layui 2.2.1 新增
+            , cols: [[
+                {field: 'id', title: 'ID', sort: true}
+                , {field: 'filename', title: '文件名', sort: true}
+                , {field: 'filesize', title: '文件大小', sort: true}
+                , {field: 'createTime', title: '文件上传时间', sort: true}
+                , {fixed: 'right', title: '操作', toolbar: '#barDemo', width: 150}
+            ]], response: {
+                statusCode: 200 //重新规定成功的状态码为 200，table 组件默认为 0
+            },
+            request: {}
+        });
+        //监听行工具事件
+        table.on('tool(test)', function (obj) {
+            const data = obj.data;
+            if (obj.event === 'delete') {
+                layer.confirm('真的删除行么', function (index) {
+                    $.get({
+                        url: "/api/v1/deleteFile",
+                        data: {"filename": data.filename, "filepath": "upload"},
+                        success: function () {
+                            table.reload('fileTable', {
+                                url: "/api/v1/getFileList"
+                                , page: false,
+                                request: {}
+                            }, 'data');
+                        }
+                    })
+                    layer.close(index);
+                });
+            } else if (obj.event === 'download') {
+                window.open("http://39.108.180.201:8888/api/v1/downloadFromCloud?filename=" + data.filename)
+            }
+        });
+        $("#reloadButton").on('click', function () {
+            table.reload('fileTable', {
+                url: "/api/v1/getFileList"
+                , page: false,
+                request: {}
+            }, 'data');
+        })
+    });
+    const myChart = echarts.init(document.getElementById('main'));
+    option = {
+        legend: {
+            data: ['上行速度KB/s', '下行速度KB/s']
+        },
+        xAxis: {
+            type: 'category',
+            boundaryGap: false,
+            data: []
+        },
+        yAxis: {
+            name: 'KB/s',
+            type: 'value'
+        },
+        series: [{
+            name: "上行速度KB/s",
+            data: [],
+            type: 'line',
+            symbol: 'none',
+            itemStyle: {normal: {label: {show: true}}},
+            areaStyle: true,
+            boundaryGap: false,
+            smooth: true
+        }, {
+            name: "下行速度KB/s",
+            data: [],
+            type: 'line',
+            symbol: 'none',
+            itemStyle: {normal: {label: {show: true}}},
+            areaStyle: true,
+            boundaryGap: false,
+            smooth: true
+        }]
+    };
+    setInterval(function () {
+        $.ajax({
+            url: "/api/v1/getNetWorkStatus", success: function (result) {
+                if (option.xAxis.data.length === 8) {
+                    option.xAxis.data.shift()
+                    option.series[0].data.shift()
+                    option.series[1].data.shift()
+                }
+                option.xAxis.data.push(result["time"])
+                option.series[0].data.push(result["up"])
+                option.series[1].data.push(result["down"])
+                myChart.setOption(option);
+            }
+        });
+    }, 3000);
+    myChart.setOption(option);
 </script>
 <style>
     body {
@@ -35,6 +159,7 @@
     #upload {
         border: 1px solid #3b8ec6;
         width: 300px;
+        height: auto;
         margin-top: 11%;
         border-radius: 20px;
     }

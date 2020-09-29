@@ -1,16 +1,24 @@
 package main
 
 import (
+	"crypto/md5"
+	"encoding/json"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
+	"strconv"
+	"syscall"
+	"time"
 )
 
 func main() {
 	router := gin.Default()
+	router.Use(Cors())
 	router.LoadHTMLGlob("templates/*")
 	router.Static("static", "./static")
 	router.GET("/", indexHandler)
@@ -21,12 +29,68 @@ func main() {
 		v1.POST("/uploadToCloud", HandleUploadFileToCloud)
 		v1.POST("/uploadToServer", HandleUploadFileToServer)
 		v1.GET("/downloadFromCloud", HandleDownloadFileFromCloud)
+		v1.GET("/getFileList", HandleFileList)
 		v1.GET("/downloadFromServer", HandleDownloadFileFromServer)
 		//PICC不支持delete请求
 		//v1.DELETE("/deleteFile", HandleDeleteFile)
 		v1.GET("/deleteFile", HandleDeleteFile)
+		v1.GET("/getNetWorkStatus", HandleGetNetWorkStatus)
 	}
 	_ = router.Run("0.0.0.0:8888")
+}
+
+func HandleFileList(context *gin.Context) {
+	files, err := ioutil.ReadDir("./upload")
+	if err != nil {
+		log.Println(err)
+	}
+	fileList := make(map[string]interface{})
+	fileList["code"] = http.StatusOK
+	data := make([]map[string]interface{}, 0)
+	pwd, _ := os.Getwd()
+	for index, f := range files {
+		fileMeta := make(map[string]interface{})
+		fileInfo, err := os.Stat(path.Join(pwd, "upload", f.Name()))
+		if err != nil {
+			log.Println(err)
+		}
+		filename := fileInfo.Name()
+		filesize := strconv.Itoa(int(fileInfo.Size()/1024)) + "KB"
+		fileSys := fileInfo.Sys().(*syscall.Stat_t)
+		createTime := fileSys.Ctim
+		fileMeta["id"] = index + 1
+		fileMeta["filename"] = filename
+		fileMeta["filesize"] = filesize
+		fileMeta["createTime"] = time.Unix(createTime.Sec, createTime.Nsec).Format("2006-01-02 15:04:05")
+		data = append(data, fileMeta)
+	}
+	fileList["data"] = data
+	context.JSON(http.StatusOK, fileList)
+}
+
+func HandleGetNetWorkStatus(context *gin.Context) {
+	apiKey := fmt.Sprintf("%x", md5.Sum([]byte("lEFM3otV1rStbh8Zp38ljTuxpIcDVkSZ")))
+	requestTime := strconv.FormatInt(time.Now().Unix(), 10)
+	requestToken := fmt.Sprintf("%x", md5.Sum([]byte(requestTime+apiKey)))
+	resp, err := http.PostForm("http://127.0.0.1/system?action=GetNetWork", url.Values{"request_time": {requestTime}, "request_token": {requestToken}})
+	if err != nil {
+		log.Println(err)
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		log.Println(err)
+	}
+	tmp := make(map[string]interface{})
+	err = json.Unmarshal(body, &tmp)
+	if err != nil {
+		log.Println(err)
+	}
+	result := make(map[string]interface{})
+	result["time"] = time.Now().Format("15:04:05")
+	result["up"] = tmp["up"]
+	result["down"] = tmp["down"]
+	context.JSON(http.StatusOK, result)
 }
 
 func indexHandler(context *gin.Context) {
@@ -138,6 +202,7 @@ func HandleDownloadFileFromServer(context *gin.Context) {
 
 //用户下载从云桌面拿到的文件
 func HandleDownloadFileFromCloud(context *gin.Context) {
+	log.Println(11111)
 	filename := context.Query("filename")
 	pwd, _ := os.Getwd()
 	context.Writer.WriteHeader(http.StatusOK)
@@ -148,14 +213,40 @@ func HandleDownloadFileFromCloud(context *gin.Context) {
 
 func HandleDeleteFile(context *gin.Context) {
 	filename := context.Query("filename")
+	filepath := context.Query("filepath")
 	pwd, _ := os.Getwd()
-	err := os.Remove(path.Join(pwd, "singleFile", filename))
-	if err != nil {
-		log.Println(err)
-		context.JSON(http.StatusInternalServerError, "服务器删除时发生错误")
-		return
+	if filepath == "upload" {
+		err := os.Remove(path.Join(pwd, filepath, filename))
+		if err != nil {
+			log.Println(err)
+			context.JSON(http.StatusInternalServerError, "服务器删除时发生错误")
+			return
+		}
+	} else {
+		err := os.Remove(path.Join(pwd, "singleFile", filename))
+		if err != nil {
+			log.Println(err)
+			context.JSON(http.StatusInternalServerError, "服务器删除时发生错误")
+			return
+		}
 	}
 	context.JSON(http.StatusOK, "服务器文件删除成功")
+}
+func Cors() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		method := c.Request.Method
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE")
+		c.Header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization")
+		c.Header("Access-Control-Expose-Headers", "Content-Length, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Cache-Control, Content-Language, Content-Type")
+		c.Header("Access-Control-Allow-Credentials", "true")
+
+		if method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusNoContent)
+		}
+
+		c.Next()
+	}
 }
 
 /*
