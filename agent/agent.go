@@ -128,11 +128,11 @@ func (cliConf *ClientConfig) connHost(host string, port int64, username, passwor
 
 	//获取client
 	if sshClient, err = ssh.Dial("tcp", addr, &config); err != nil {
-		log.Fatalln("error occurred:", err)
+		log.Println("error occurred:", err)
 	}
 	// create sftp client
 	if sftpClient, err = sftp.NewClient(sshClient); err != nil {
-		log.Fatalln("error occurred:", err)
+		log.Println("error occurred:", err)
 	}
 
 	cliConf.SshClient = sshClient
@@ -145,12 +145,12 @@ func (cliConf *ClientConfig) RunShell(shell string) string {
 	)
 
 	if session, err = cliConf.SshClient.NewSession(); err != nil {
-		log.Fatalln("error occurred:", err)
+		log.Println("error occurred:", err)
 	}
 
 	//执行shell
 	if output, err := session.CombinedOutput(shell); err != nil {
-		//log.Fatalln("error occurred:", err)
+		//log.Println("error occurred:", err)
 		cliConf.LastResult = err.Error()
 	} else {
 		cliConf.LastResult = string(output)
