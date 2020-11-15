@@ -1,9 +1,7 @@
 package main
 
 import (
-	"crypto/md5"
 	"encoding/json"
-	"fmt"
 	"github.com/gin-gonic/gin"
 	"io/ioutil"
 	"log"
@@ -57,7 +55,8 @@ func HandleFileList(context *gin.Context) {
 		filename := fileInfo.Name()
 		filesize := strconv.Itoa(int(fileInfo.Size()/1024)) + "KB"
 		fileSys := fileInfo.Sys().(*syscall.Stat_t)
-		createTime := fileSys.Ctim
+		//createTime := fileSys.Ctim
+		createTime := fileSys.Ctimespec
 		fileMeta["id"] = index + 1
 		fileMeta["filename"] = filename
 		fileMeta["filesize"] = filesize
@@ -69,27 +68,26 @@ func HandleFileList(context *gin.Context) {
 }
 
 func HandleGetNetWorkStatus(context *gin.Context) {
-	apiKey := fmt.Sprintf("%x", md5.Sum([]byte("lEFM3otV1rStbh8Zp38ljTuxpIcDVkSZ")))
-	requestTime := strconv.FormatInt(time.Now().Unix(), 10)
-	requestToken := fmt.Sprintf("%x", md5.Sum([]byte(requestTime+apiKey)))
-	resp, err := http.PostForm("http://127.0.0.1/system?action=GetNetWork", url.Values{"request_time": {requestTime}, "request_token": {requestToken}})
-	if err != nil {
-		log.Println(err)
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		log.Println(err)
-	}
-	tmp := make(map[string]interface{})
-	err = json.Unmarshal(body, &tmp)
-	if err != nil {
-		log.Println(err)
-	}
+	encodeUrl := url.QueryEscape("select bytes_recv,bytes_sent from net where time>now()-1h order by time desc limit 2")
+	response, err := http.Get("http://127.0.0.1:8086/query?pretty=true&db=telegraf&q=" + encodeUrl)
 	result := make(map[string]interface{})
-	result["time"] = time.Now().Format("15:04:05")
-	result["up"] = tmp["up"]
-	result["down"] = tmp["down"]
+	if err != nil {
+		log.Println(err)
+	} else {
+		defer response.Body.Close()
+		res, err := ioutil.ReadAll(response.Body)
+		if err != nil {
+			log.Println(err)
+		}
+		var v interface{}
+		_ = json.Unmarshal(res, &v)
+		tmp := v.(map[string]interface{})["results"].([]interface{})[0].(map[string]interface{})["series"].([]interface{})[0].(map[string]interface{})["values"].([]interface{})
+		result["time"] = time.Now().Format("15:04:05")
+		// 下行流量
+		result["down"] = (tmp[0].([]interface{})[1].(float64) - tmp[1].([]interface{})[1].(float64)) / 1000
+		// 上行流量
+		result["up"] = (tmp[0].([]interface{})[2].(float64) - tmp[1].([]interface{})[2].(float64)) / 1000
+	}
 	context.JSON(http.StatusOK, result)
 }
 
