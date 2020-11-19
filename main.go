@@ -54,13 +54,16 @@ func HandleFileList(context *gin.Context) {
 		}
 		filename := fileInfo.Name()
 		filesize := strconv.Itoa(int(fileInfo.Size()/1024)) + "KB"
-		fileSys := fileInfo.Sys().(*syscall.Stat_t)
+		fileSys := fileInfo.Sys().(*syscall.Win32FileAttributeData)
+		//fileSys := fileInfo.Sys().(*syscall.Stat_t)
+		createTime := fileSys.CreationTime
 		//createTime := fileSys.Ctim
-		createTime := fileSys.Ctimespec
+		//createTime := fileSys.Ctimespec
 		fileMeta["id"] = index + 1
 		fileMeta["filename"] = filename
 		fileMeta["filesize"] = filesize
-		fileMeta["createTime"] = time.Unix(createTime.Sec, createTime.Nsec).Format("2006-01-02 15:04:05")
+		fileMeta["createTime"] = time.Unix(createTime.Nanoseconds()/1e9, 0).Format("2006-01-02 15:04:05")
+		//fileMeta["createTime"] = time.Unix(createTime.Sec, createTime.Nsec).Format("2006-01-02 15:04:05")
 		data = append(data, fileMeta)
 	}
 	fileList["data"] = data

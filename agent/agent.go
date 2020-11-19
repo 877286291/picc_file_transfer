@@ -122,7 +122,7 @@ func (cliConf *ClientConfig) connHost(host string, port int64, username, passwor
 		HostKeyCallback: func(hostname string, remote net.Addr, key ssh.PublicKey) error {
 			return nil
 		},
-		Timeout: 10 * time.Second,
+		Timeout: 0,
 	}
 	addr := fmt.Sprintf("%s:%d", cliConf.Host, cliConf.Port)
 
@@ -162,7 +162,7 @@ func sftpUpload(fileName string, srcFile []byte) {
 	cliConf.connHost(HOST, 22, USERNAME, PASSWORD)
 	dstFile, err := cliConf.SftpClient.Create(path.Join(insideDir, fileName))
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
 	}
 	defer cliConf.SshClient.Close()
 	defer cliConf.SftpClient.Close()
@@ -189,11 +189,6 @@ func sftpDownload(fileName string) *os.File {
 	return fileReader
 }
 func download(downloadTickChan <-chan time.Time, currentTask string) {
-	defer func() {
-		if e := recover(); e != nil {
-			go download(downloadTickChan, currentTask)
-		}
-	}()
 	for {
 		log.Println("监测服务器是否有新文件")
 		request, err := http.NewRequest(http.MethodGet, apiUrl+"/singleFile", nil)
@@ -228,11 +223,6 @@ func download(downloadTickChan <-chan time.Time, currentTask string) {
 }
 
 func upload(uploadTickChan <-chan time.Time) {
-	defer func() {
-		if e := recover(); e != nil {
-			go upload(uploadTickChan)
-		}
-	}()
 	for {
 		log.Println("监测云桌面是否有新文件")
 		cliConf := new(ClientConfig)
