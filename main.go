@@ -207,7 +207,6 @@ func HandleDownloadFileFromServer(context *gin.Context) {
 
 //用户下载从云桌面拿到的文件
 func HandleDownloadFileFromCloud(context *gin.Context) {
-	log.Println(11111)
 	filename := context.Query("filename")
 	pwd, _ := os.Getwd()
 	context.Writer.WriteHeader(http.StatusOK)
