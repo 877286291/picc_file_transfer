@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -62,47 +63,6 @@ func init() {
 	httpClient = &http.Client{
 		Transport: httpTransport,
 	}
-}
-
-func main() {
-	wg.Add(2)
-	downloadTickChan := time.Tick(time.Second * 3)
-	uploadTickChan := time.Tick(time.Second * 5)
-	currentTask := ""
-	//下载文件到云桌面
-	go download(downloadTickChan, currentTask)
-	//上传文件到外网服务器
-	go upload(uploadTickChan)
-	wg.Wait()
-}
-func getContent(filename string) []byte {
-	log.Println("开始获取服务器文件...")
-	request, err := http.NewRequest(http.MethodGet, apiUrl+"/downloadFromServer?filename="+filename, nil)
-	if err != nil {
-		log.Println(err)
-	}
-	resp, err := httpClient.Do(request)
-	if err != nil {
-		log.Println(err)
-	}
-	defer resp.Body.Close()
-	response, _ := ioutil.ReadAll(resp.Body)
-
-	return response
-}
-func deleteFile(filename string) {
-	fmt.Println("开始删除文件：", filename)
-	request, err := http.NewRequest(http.MethodGet, apiUrl+"/deleteFile?filename="+filename, nil)
-	if err != nil {
-		log.Println(err)
-	}
-	resp, err := httpClient.Do(request)
-	if err != nil {
-		log.Println(err)
-	}
-	defer resp.Body.Close()
-	respBody, err := ioutil.ReadAll(resp.Body)
-	log.Println(string(respBody))
 }
 func (cliConf *ClientConfig) connHost(host string, port int64, username, password string) {
 	var (
@@ -181,6 +141,8 @@ func sftpDownload(fileName string) *os.File {
 	}
 	cliConf.RunShell("rm -rf " + path.Join(outsideDir, fileName))
 	defer srcFile.Close()
+	defer cliConf.SshClient.Close()
+	defer cliConf.SftpClient.Close()
 	fileReader, err := os.Open(path.Join("./", fileName))
 	if err != nil {
 		log.Println(err)
@@ -188,7 +150,9 @@ func sftpDownload(fileName string) *os.File {
 	_ = os.Remove(path.Join("./", fileName))
 	return fileReader
 }
-func download(downloadTickChan <-chan time.Time, currentTask string) {
+
+// 1.检测服务器文件
+func checkServerFile(serverTaskList *[]string) {
 	for {
 		log.Println("监测服务器是否有新文件")
 		request, err := http.NewRequest(http.MethodGet, apiUrl+"/singleFile", nil)
@@ -198,70 +162,131 @@ func download(downloadTickChan <-chan time.Time, currentTask string) {
 		resp, err := httpClient.Do(request)
 		if err != nil {
 			log.Println(err)
-			continue
 		}
 		response, err := ioutil.ReadAll(resp.Body)
 		resp.Body.Close()
-		fileName := strings.ReplaceAll(string(response), "\"", "")
 		if err != nil {
 			log.Println(err)
 		}
-
-		if len(fileName) != 0 && fileName != "null" && currentTask != fileName {
-			//获取数据
-			content := getContent(fileName)
-			currentTask = fileName
-			//删除临时文件
-			deleteFile(fileName)
-			//传入10.8.7.77
-			log.Println("文件已从服务器拉至本地，开始上传至内网服务器...")
-			sftpUpload(fileName, content)
-			currentTask = ""
+		var v interface{}
+		_ = json.Unmarshal(response, &v)
+		fileList := v.(map[string]interface{})["file_list"].([]interface{})
+		if len(fileList) != 0 {
+			// 加入全局任务队列
+			for _, fileName := range fileList {
+				if !isInTask(fileName.(string), serverTaskList) {
+					*serverTaskList = append(*serverTaskList, fileName.(string))
+					go getContent(fileName.(string), serverTaskList)
+				}
+			}
 		}
-		<-downloadTickChan
+		<-time.Tick(time.Second * 3)
 	}
 }
+func isInTask(filename string, serverTaskList *[]string) bool {
+	for _, task := range *serverTaskList {
+		if task == filename {
+			return true
+		}
+	}
+	return false
+}
 
-func upload(uploadTickChan <-chan time.Time) {
+// 2.检测云桌面文件
+func checkYunDesktopFile(yunTaskList *[]string) {
 	for {
 		log.Println("监测云桌面是否有新文件")
 		cliConf := new(ClientConfig)
 		cliConf.connHost(HOST, 22, USERNAME, PASSWORD)
 		fileList := strings.Split(cliConf.RunShell("ls -l "+outsideDir+"| grep ^[^d] | awk '{print $9}'"), "\n")
 		for _, filename := range fileList[1:] {
-			if filename == "" {
+			if filename == "" || isInTask(filename, yunTaskList) {
 				continue
 			}
-			fileReader := sftpDownload(filename)
-			bodyBuf := &bytes.Buffer{}
-			bodyWriter := multipart.NewWriter(bodyBuf)
-			fileWriter, err := bodyWriter.CreateFormFile("file", filename)
-			if err != nil {
-				log.Println(err)
-			}
-			_, err = io.Copy(fileWriter, fileReader)
-			if err != nil {
-				log.Println(err)
-			}
-			contentType := bodyWriter.FormDataContentType()
-			_ = bodyWriter.Close()
-			//上传文件
-			request, err := http.NewRequest(http.MethodPost, apiUrl+"/uploadToServer", bodyBuf)
-			if err != nil {
-				log.Println(err)
-			}
-			request.Header.Set("Content-Type", contentType)
-			resp, err := httpClient.Do(request)
-			if err != nil {
-				log.Println(err)
-				continue
-			}
-			response, err := ioutil.ReadAll(resp.Body)
-			resp.Body.Close()
-			log.Println(string(response))
+			*yunTaskList = append(*yunTaskList, filename)
+			go func(filename string, yunTaskList *[]string) {
+				fileReader := sftpDownload(filename)
+				deleteTask(filename, yunTaskList)
+				bodyBuf := &bytes.Buffer{}
+				bodyWriter := multipart.NewWriter(bodyBuf)
+				fileWriter, err := bodyWriter.CreateFormFile("file", filename)
+				if err != nil {
+					log.Println(err)
+				}
+				_, err = io.Copy(fileWriter, fileReader)
+				if err != nil {
+					log.Println(err)
+				}
+				contentType := bodyWriter.FormDataContentType()
+				_ = bodyWriter.Close()
+				//上传文件
+				request, err := http.NewRequest(http.MethodPost, apiUrl+"/uploadToServer", bodyBuf)
+				if err != nil {
+					log.Println(err)
+				}
+				request.Header.Set("Content-Type", contentType)
+				resp, err := httpClient.Do(request)
+				if err != nil {
+					log.Println(err)
+				}
+				response, err := ioutil.ReadAll(resp.Body)
+				resp.Body.Close()
+				log.Println(string(response))
+			}(filename, yunTaskList)
 		}
 		cliConf.SftpClient.Close()
 		cliConf.SshClient.Close()
-		<-uploadTickChan
+		<-time.Tick(time.Second * 3)
 	}
+}
+
+// 3.下载任务，从任务通道取数
+func getContent(filename string, serverTaskList *[]string) {
+	request, err := http.NewRequest(http.MethodGet, apiUrl+"/downloadFromServer?filename="+filename, nil)
+	if err != nil {
+		log.Println(err)
+	}
+	resp, err := httpClient.Do(request)
+	if err != nil {
+		log.Println(err)
+	}
+	response, _ := ioutil.ReadAll(resp.Body)
+	deleteTask(filename, serverTaskList)
+	resp.Body.Close()
+	//删除服务器文件
+	deleteFile(filename)
+	log.Println("文件已从服务器拉至本地，开始上传至内网服务器...")
+	sftpUpload(filename, response)
+}
+func deleteFile(filename string) {
+	log.Println("开始删除文件：", filename)
+	request, err := http.NewRequest(http.MethodGet, apiUrl+"/deleteFile?filename="+filename, nil)
+	if err != nil {
+		log.Println(err)
+	}
+	resp, err := httpClient.Do(request)
+	if err != nil {
+		log.Println(err)
+	}
+	defer resp.Body.Close()
+	respBody, err := ioutil.ReadAll(resp.Body)
+	log.Println(string(respBody))
+}
+func deleteTask(filename string, serverTaskList *[]string) {
+	for index, task := range *serverTaskList {
+		if filename == task {
+			*serverTaskList = append((*serverTaskList)[:index], (*serverTaskList)[index+1:]...)
+		}
+	}
+}
+
+// 4.下载任务，从任务通道取数
+func main() {
+	serverTaskList := make([]string, 0)
+	yunTaskList := make([]string, 0)
+	// 下载文件到内网
+	go checkServerFile(&serverTaskList)
+	// 上传文件到外网
+	go checkYunDesktopFile(&yunTaskList)
+	select {}
 }

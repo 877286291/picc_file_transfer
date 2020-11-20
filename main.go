@@ -54,16 +54,16 @@ func HandleFileList(context *gin.Context) {
 		}
 		filename := fileInfo.Name()
 		filesize := strconv.Itoa(int(fileInfo.Size()/1024)) + "KB"
-		fileSys := fileInfo.Sys().(*syscall.Win32FileAttributeData)
-		//fileSys := fileInfo.Sys().(*syscall.Stat_t)
-		createTime := fileSys.CreationTime
-		//createTime := fileSys.Ctim
+		//fileSys := fileInfo.Sys().(*syscall.Win32FileAttributeData)
+		fileSys := fileInfo.Sys().(*syscall.Stat_t)
+		//createTime := fileSys.CreationTime
+		createTime := fileSys.Ctim
 		//createTime := fileSys.Ctimespec
 		fileMeta["id"] = index + 1
 		fileMeta["filename"] = filename
 		fileMeta["filesize"] = filesize
-		fileMeta["createTime"] = time.Unix(createTime.Nanoseconds()/1e9, 0).Format("2006-01-02 15:04:05")
-		//fileMeta["createTime"] = time.Unix(createTime.Sec, createTime.Nsec).Format("2006-01-02 15:04:05")
+		//fileMeta["createTime"] = time.Unix(createTime.Nanoseconds()/1e9, 0).Format("2006-01-02 15:04:05")
+		fileMeta["createTime"] = time.Unix(createTime.Sec, createTime.Nsec).Format("2006-01-02 15:04:05")
 		data = append(data, fileMeta)
 	}
 	fileList["data"] = data
@@ -106,10 +106,14 @@ func HandleSingleFile(context *gin.Context) {
 	if checkPath(fullPath) {
 		fileInfoList, _ = ioutil.ReadDir(fullPath)
 		if len(fileInfoList) > 0 {
-			context.JSON(http.StatusOK, fileInfoList[0].Name())
+			tmpList := make([]string, 0)
+			for _, fileInfo := range fileInfoList {
+				tmpList = append(tmpList, fileInfo.Name())
+			}
+			context.JSON(http.StatusOK, gin.H{"file_list": tmpList})
 			return
 		}
-		context.JSON(http.StatusOK, nil)
+		context.JSON(http.StatusOK, gin.H{"file_list": fileInfoList})
 		return
 	}
 	context.JSON(http.StatusInternalServerError, nil)
