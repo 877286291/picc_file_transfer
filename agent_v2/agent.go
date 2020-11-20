@@ -118,6 +118,11 @@ func (cliConf *ClientConfig) RunShell(shell string) string {
 	return cliConf.LastResult
 }
 func sftpUpload(fileName string, srcFile []byte) {
+	defer func() {
+		if e := recover(); e != nil {
+			go sftpUpload(fileName, srcFile)
+		}
+	}()
 	cliConf := new(ClientConfig)
 	cliConf.connHost(HOST, 22, USERNAME, PASSWORD)
 	dstFile, err := cliConf.SftpClient.Create(path.Join(insideDir, fileName))
@@ -131,6 +136,11 @@ func sftpUpload(fileName string, srcFile []byte) {
 	log.Println(fileName, "文件上传完成，共", total/1024/1024, "M")
 }
 func sftpDownload(fileName string) *os.File {
+	defer func() {
+		if e := recover(); e != nil {
+			go sftpDownload(fileName)
+		}
+	}()
 	log.Println(fileName)
 	cliConf := new(ClientConfig)
 	cliConf.connHost(HOST, 22, USERNAME, PASSWORD)
@@ -147,7 +157,6 @@ func sftpDownload(fileName string) *os.File {
 	if err != nil {
 		log.Println(err)
 	}
-	_ = os.Remove(path.Join("./", fileName))
 	return fileReader
 }
 
@@ -207,6 +216,7 @@ func checkYunDesktopFile(yunTaskList *[]string) {
 			go func(filename string, yunTaskList *[]string) {
 				fileReader := sftpDownload(filename)
 				deleteTask(filename, yunTaskList)
+				_ = os.Remove(path.Join("./", filename))
 				bodyBuf := &bytes.Buffer{}
 				bodyWriter := multipart.NewWriter(bodyBuf)
 				fileWriter, err := bodyWriter.CreateFormFile("file", filename)
